@@ -2,6 +2,8 @@ package com.factory.infuse.internal;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -10,23 +12,28 @@ import java.util.Map;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.support.v4.app.Fragment;
+import android.text.TextWatcher;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.View.OnTouchListener;
 import android.widget.AbsListView.OnScrollListener;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.AdapterView.OnItemLongClickListener;
+import android.widget.EditText;
 import android.widget.ListAdapter;
 import android.widget.ListView;
 
+import com.factory.InfuseFactory;
 import com.factory.infuse.Infuser;
 import com.factory.infuse.annotation.Infuse;
 import com.factory.infuse.annotation.InfuseView;
+import com.factory.infuse.annotation.InitializeViews;
 import com.factory.infuse.annotation.bindings.BindAdapter;
 import com.factory.infuse.annotation.bindings.BindOnClick;
 import com.factory.infuse.annotation.bindings.BindOnItemClick;
 import com.factory.infuse.annotation.bindings.BindOnItemLongClick;
 import com.factory.infuse.annotation.bindings.BindOnScroll;
+import com.factory.infuse.annotation.bindings.BindOnText;
 import com.factory.infuse.annotation.bindings.BindOnTouch;
 import com.factory.infuse.internal.InfuseReflection.FieldConsumer;
 import com.factory.infuse.internal.InfuseReflection.ScopeType;
@@ -109,22 +116,22 @@ public class InfuserScoped extends AbsInfuser implements Infuser {
 
 	@Override
 	public void infuseMembers(Fragment fragment) {
-		if(localScope.peekScoped(Fragment.class) == false) {
-			localScope.markScoped(Fragment.class, fragment);
-		}
+		// TODO: mark their state
 		
-		if(localScope.peekScoped(Activity.class) == false) {
-			localScope.markScoped(Activity.class, fragment.getActivity());
-		}
-		
+		localScope.markScoped(Fragment.class, fragment);
+		localScope.markScoped(fragment.getClass(), fragment);
+		localScope.markScoped(Activity.class, fragment.getActivity());
+		localScope.markScoped(fragment.getActivity().getClass(), fragment.getActivity());
+				
 		infuseMembers((Object)fragment);
 	}
 
 	@Override
 	public void infuseMembers(Activity activity) {
-		if(localScope.peekScoped(Activity.class) == false) {
-			localScope.markScoped(Activity.class, activity);
-		}
+		// TODO: mark their state
+		
+		localScope.markScoped(Activity.class, activity);
+		localScope.markScoped(activity.getClass(), activity);
 		
 		infuseMembers((Object)activity);
 	}
@@ -217,28 +224,76 @@ public class InfuserScoped extends AbsInfuser implements Infuser {
 			infuseViewsScoped(listener, resolver);
 
 			((View)f.get(object)).setOnTouchListener((OnTouchListener)listener);
+		} else if(type.equals(BindOnText.class)) {
+			BindOnText ant = f.getAnnotation(BindOnText.class);
+			
+			if(f.get(object) == null) {
+				resolveView(object, f, ant.id(), resolver);
+			}
+			
+			Object listener = getInstance(ant.value());
+			infuseViewsScoped(listener, resolver);
+			
+			((EditText) f.get(object)).addTextChangedListener((TextWatcher)listener);
 		}
 	}
 	
 	private void infuseViewsScoped(final Object object, final ViewResolver resolver) {
-		reflection.fieldIterator(object.getClass(), new FieldConsumer() {
+		Class<?> clazz = object.getClass();
+		
+		State state = classCurrentState(clazz);
+		
+		if(state.viewsInfused == true) {
+			return;
+		}
+		
+		// 1. First infuse views
+		reflection.fieldIterator(clazz, new FieldConsumer() {
 			@Override
 			public void processField(Field f) throws IllegalAccessException {
-				if((f.isAnnotationPresent(InfuseView.class) 
-						&& f.get(object) == null)) {
-					InfuseView view = f.getAnnotation(InfuseView.class);
-					resolveView(object, f, view.value(), resolver);
-				} else if(f.isAnnotationPresent(Infuse.class)) {
-					// Infuse the views of the field marked with @Infuse
-					infuseViewsScoped(f.get(object), resolver);
-				}
+				InfuseView view = f.getAnnotation(InfuseView.class);
+				resolveView(object, f, view.value(), resolver);
 			}
 			
 			@Override
 			public boolean acceptsField(Field f) throws IllegalAccessException, IllegalArgumentException {				
-				return true;
+				return f.isAnnotationPresent(InfuseView.class) && f.get(object) == null;
 			}
 		});
+		
+		// Mark class as view infused
+		state.viewsInfused = true;
+		classUpdateState(clazz, state);
+		
+		reflection.fieldIterator(clazz, new FieldConsumer() {
+			@Override
+			public void processField(Field f) throws IllegalAccessException {
+				infuseViewsScoped(f.get(object), resolver);
+			}
+			
+			@Override
+			public boolean acceptsField(Field f) throws IllegalAccessException, IllegalArgumentException {				
+				return f.isAnnotationPresent(Infuse.class);
+			}
+		});
+		
+		// 3. Call the initializeViews method if it exists and has the annotation
+		try {
+			Method initViews = object.getClass().getDeclaredMethod("initializeViews");
+			
+			if(initViews.isAnnotationPresent(InitializeViews.class)) {
+				initViews.setAccessible(true);
+				initViews.invoke(object);
+			}
+		} catch (NoSuchMethodException e) {
+			// Don't care, only care if we can call it or not
+		} catch (IllegalAccessException e) {
+			if(InfuseFactory.DEBUG) e.printStackTrace();
+		} catch (IllegalArgumentException e) {
+			if(InfuseFactory.DEBUG) e.printStackTrace();
+		} catch (InvocationTargetException e) {
+			if(InfuseFactory.DEBUG) e.printStackTrace();
+		}
 	}
 	
 	private void resolveView(Object object, Field f, int value, ViewResolver resolver) throws IllegalAccessException, IllegalArgumentException {

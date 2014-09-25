@@ -28,7 +28,9 @@ public class InfuseReflection {
 	public void fieldIterator(Class<?> clazz, FieldConsumer consumer) {
 		Field fields[] = clazz.getDeclaredFields();
 		
-		for(Field f : fields) {
+		for(int i = 0, size = fields.length; i < size; i++) {
+			Field f = fields[i];
+			
 			try {
 				f.setAccessible(true);
 				

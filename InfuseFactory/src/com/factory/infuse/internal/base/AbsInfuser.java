@@ -1,22 +1,37 @@
 package com.factory.infuse.internal.base;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.locks.Lock;
 
 import android.view.View;
 
+import com.factory.InfuseFactory;
 import com.factory.infuse.Infuser;
 import com.factory.infuse.annotation.Infuse;
 import com.factory.infuse.annotation.InfuseView;
+import com.factory.infuse.annotation.Initialize;
+import com.factory.infuse.annotation.InitializeViews;
 import com.factory.infuse.internal.InfuseReflection;
 import com.factory.infuse.internal.InfuseReflection.FieldConsumer;
+import com.factory.infuse.internal.InfuseReflection.ScopeType;
 import com.factory.infuse.internal.ViewResolver;
 import com.factory.infuse.internal.lock.SharedLock;
 import com.factory.infuse.internal.scope.GlobalScope;
 import com.factory.infuse.internal.scope.ScopeFactory;
 
 public abstract class AbsInfuser implements Infuser {	
+	// State for a class
+	protected class State {
+		public boolean membersInfused;
+		public boolean viewsInfused;
+	}
+	
+	protected Map<Class<?>, State> state;
+	
 	// Reflection utils
 	protected InfuseReflection reflection;	
 	
@@ -28,6 +43,7 @@ public abstract class AbsInfuser implements Infuser {
 	
 	public AbsInfuser() {
 		reflection = new InfuseReflection();
+		state = new HashMap<Class<?>, State>();
 		
 		globalScope = ScopeFactory.getGlobalScope();
 		lock = SharedLock.getSharedLock();
@@ -75,6 +91,26 @@ public abstract class AbsInfuser implements Infuser {
 	 */
 	protected abstract Object extractGlobally(Class<?> clazz);
 	
+	/**
+	 * The state of a class instance.
+	 */
+	protected State classCurrentState(Class<?> clazz) {
+		if(state.containsKey(clazz)) {
+			return state.get(clazz); // Current state
+		} else {
+			return new State(); // Default empty state
+		}
+	}
+	
+	protected void classUpdateState(Class<?> clazz, State state) {
+		// Update only singletons or scoped singletons
+		ScopeType scope = reflection.extractClassScope(clazz);
+		
+		if(scope == ScopeType.SINGLETON_GLOBAL || scope == ScopeType.SINGLETON_SCOPED) {
+			this.state.put(clazz, state);
+		}
+	}
+	
 	@Override
 	public final <T> T getSingletonInstance(Class<T> clazz) {
 		lock.lock();
@@ -110,7 +146,7 @@ public abstract class AbsInfuser implements Infuser {
 	public void infuseViews(Object object, View v) {
 		infuseViewsResolver(object, new ViewResolver(v));
 	}
-	
+
 	/**
 	 * Infuses the object's members. Will resolve inner
 	 * non-static classes if they require a instance of the 
@@ -120,14 +156,18 @@ public abstract class AbsInfuser implements Infuser {
 	 * {@link Infuse} will also have their members infused.
 	 */
 	protected void infuseMembersInner(final Object object) {
-		reflection.fieldIterator(object.getClass(), new FieldConsumer() {
+		Class<?> clazz = object.getClass();
+		
+		State state = classCurrentState(clazz);
+		
+		if(state.membersInfused == true) {
+			return;
+		}
+		
+		reflection.fieldIterator(clazz, new FieldConsumer() {
 			@Override
-			public void processField(Field f) throws IllegalAccessException {				
+			public void processField(Field f) throws IllegalAccessException {
 				Object instance = resolveInstance(f.getType(), object);
-				// Infuse it's members recursively
-				infuseMembersInner(instance);
-				
-				// Finally set it.
 				f.set(object, instance);
 			}
 			
@@ -135,7 +175,43 @@ public abstract class AbsInfuser implements Infuser {
 			public boolean acceptsField(Field f) throws IllegalAccessException, IllegalArgumentException {
 				return f.isAnnotationPresent(Infuse.class) && f.get(object) == null;
 			}
-		});	
+		});
+		
+		// Update current state
+		state.membersInfused = true;
+		classUpdateState(clazz, state);
+		
+		// Infuses inner fields too
+		reflection.fieldIterator(clazz, new FieldConsumer() {
+			@Override
+			public void processField(Field f) throws IllegalAccessException {
+				Object instance = f.get(object);
+				infuseMembersInner(instance);
+			}
+			
+			@Override
+			public boolean acceptsField(Field f) throws IllegalAccessException, IllegalArgumentException {
+				return f.isAnnotationPresent(Infuse.class);
+			}
+		});
+		
+		// 3. Call the initialize method if it exists and has the annotation
+		try {
+			Method init = object.getClass().getDeclaredMethod("initialize");
+			
+			if(init.isAnnotationPresent(Initialize.class)) {
+				init.setAccessible(true);
+				init.invoke(object);
+			}
+		} catch (NoSuchMethodException e) {
+			// Don't care, only care if we can call it or not
+		} catch (IllegalAccessException e) {
+			if(InfuseFactory.DEBUG) e.printStackTrace();
+		} catch (IllegalArgumentException e) {
+			if(InfuseFactory.DEBUG) e.printStackTrace();
+		} catch (InvocationTargetException e) {
+			if(InfuseFactory.DEBUG) e.printStackTrace();
+		}
 	}
 	
 	/**
