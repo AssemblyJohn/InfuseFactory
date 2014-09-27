@@ -14,7 +14,7 @@ import com.factory.InfuseFactory;
 public class InfuseFragment extends Fragment {
 	@Override
 	public void onCreate(Bundle savedOptionState) {
-		InfuseFactory.getScopedInfuser(getActivity()).infuseMembers(this);
+		InfuseFactory.getScopedInfuser(this).infuseMembers(this);
 		
 		super.onCreate(savedOptionState);
 	}
@@ -22,6 +22,6 @@ public class InfuseFragment extends Fragment {
 	public void onViewCreated(View view, Bundle savedInstanceState) {
 		super.onViewCreated(view, savedInstanceState);
 		
-		InfuseFactory.getScopedInfuser(getActivity()).infuseViews(this);
+		InfuseFactory.getScopedInfuser(this).infuseViews(this);
 	}
 }
