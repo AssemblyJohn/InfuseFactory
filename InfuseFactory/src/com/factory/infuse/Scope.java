@@ -22,4 +22,6 @@ public interface Scope {
 	 * instance and false if it does not.
 	 */
 	public boolean peekScoped(Class<?> clazz);
+	
+	public void clearScope();
 }

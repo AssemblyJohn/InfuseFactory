@@ -1,6 +1,7 @@
 package com.factory.infuse.internal;
 
 import java.lang.annotation.Annotation;
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -42,15 +43,17 @@ import com.factory.infuse.internal.scope.LocalScope;
 import com.factory.infuse.internal.scope.ScopeFactory;
 
 public class InfuserScoped extends AbsInfuser implements Infuser {
+	// TODO: bug here, even if we use weak maps, their key is weak NOT THEIR VALUE DUMMY!!!
+	
 	// Map for scoped views 
-	private Map<Integer, View> scopedViews;
+	private Map<Integer, WeakReference<View>> scopedViews;
 	private LocalScope localScope;
 	
 	@SuppressLint("UseSparseArrays") 
 	public InfuserScoped() {
 		super();
 		
-		scopedViews = new HashMap<Integer, View>();
+		scopedViews = new HashMap<Integer, WeakReference<View>>();
 		localScope = ScopeFactory.getNewLocalScope();
 	}
 	
@@ -299,11 +302,11 @@ public class InfuserScoped extends AbsInfuser implements Infuser {
 	private void resolveView(Object object, Field f, int value, ViewResolver resolver) throws IllegalAccessException, IllegalArgumentException {
 		if(scopedViews.containsKey(value) == false) {
 			View v = resolver.resolveView(value);
-			scopedViews.put(value, v);
+			scopedViews.put(value, new WeakReference<View>(v));
 			
 			f.set(object, v);
 		} else {
-			f.set(object, scopedViews.get(value));
+			f.set(object, scopedViews.get(value).get());
 		}	
 	}
 	

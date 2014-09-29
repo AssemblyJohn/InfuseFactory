@@ -51,6 +51,10 @@ public class InfuseFactory {
 		return creator.obtainScopedInfuser(key);
 	}
 	
+//	public static void deleteScopedInfuser(Object key) {
+//		creator.deleteScopedInfuser(key);
+//	}
+	
 	/**
 	 * Obtains the global infuser. If any manual instantiation or member
 	 * infusion is necessarily this infuser should be used.

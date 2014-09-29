@@ -7,7 +7,6 @@ import android.content.Context;
 
 import com.factory.infuse.internal.InfuserGlobal;
 import com.factory.infuse.internal.InfuserScoped;
-import com.factory.infuse.internal.scope.AbsScope;
 import com.factory.infuse.internal.scope.ScopeFactory;
 
 public class InfuseCreator {	
@@ -26,7 +25,7 @@ public class InfuseCreator {
 	
 	// Clear and populate the global scope
 	public void clearGlobalInstances() {
-		((AbsScope) scopeGlobal).clearScope();
+		scopeGlobal.clearScope();
 		scopeGlobal.markScoped(Context.class, context);
 	}
 	
@@ -46,6 +45,12 @@ public class InfuseCreator {
 			return infuser;
 		}
 	}
+	
+//	public void deleteScopedInfuser(Object key) {
+//		if(scopedInfusers.containsKey(key)) {
+//			scopedInfusers.remove(key);
+//		}
+//	}
 	
 	public Infuser obtainGlobalInfuser() {
 		return globalInfuser;
